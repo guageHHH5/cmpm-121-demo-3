@@ -5,10 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
   <body>
+    <h1 id="title"></h1>
     <div id="app">
-      <!-- todo -->
+      <div id="controls">
+        <button id="sensor" title="sensor">🌐</button>
+        <button id="north" title="north">⬆️</button>
+        <button id="south" title="south">⬇️</button>
+        <button id="west" title="west">⬅️</button>
+        <button id="east" title="east">➡️</button>
+        <button id="reset" title="reset">🚮</button>
+      </div>
+      <div id="map"></div>
     </div>
-    <button id="clickbutton">click me</button>
+    <div id="status"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
