@@ -1,7 +1,7 @@
 // todo
 // @deno-types="npm:@types/leaflet@^1.9.14"
 import leaflet from "leaflet";
-import { Board } from "./board.ts";
+import { Board, Cell, Coin } from "./board.ts";
 
 // Style sheets
 import "leaflet/dist/leaflet.css";
@@ -10,21 +10,20 @@ import "./style.css";
 // Fix missing marker images
 import "./leafletWorkaround.ts";
 
-// Deterministic random number generator
-import luck from "./luck.ts";
-
 // Location of our classroom (as identified on Google Maps)
 const OAKES_CLASSROOM = leaflet.latLng(36.98949379578401, -122.06277128548504);
-
+const NULL_SPACE = leaflet.latLng(0, 0);
 // Tunable gameplay parameters
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
-const CACHE_SPAWN_PROBABILITY = 0.1;
+export const CACHE_SPAWN_PROBABILITY = 0.1;
+
+
 
 // Create the map (element with id "map" is defined in index.html)
 const map = leaflet.map(document.getElementById("map")!, {
-  center: OAKES_CLASSROOM,
+  center: NULL_SPACE,
   zoom: GAMEPLAY_ZOOM_LEVEL,
   minZoom: GAMEPLAY_ZOOM_LEVEL,
   maxZoom: GAMEPLAY_ZOOM_LEVEL,
@@ -52,202 +51,187 @@ title.innerHTML = "Geocoin Carrier";
 title.style.marginLeft = "10px";
 title.style.font = "bold 54px sans-serif";
 
-const origin = OAKES_CLASSROOM;
+//const origin = OAKES_CLASSROOM;
 
 // Display player points
 const status = document.querySelector<HTMLDivElement>("#statusPanel")!;
 status.innerHTML = "No coins available";
 status.style.font = "bold 24px sans-serif";
 
-interface Coin {
-  i: number;
-  j: number;
-  serial: number;
-}
-
-// numerical representation of position
-function roundNumber(value: number): number {
-  return Math.floor(value * 10000);
-}
-
-function generateLatLong(x: number, y: number) {
-  return [
-    roundNumber(origin.lat + x * TILE_DEGREES),
-    roundNumber(origin.lng + y * TILE_DEGREES),
-  ];
-}
-
-function regenPopText(
-  coins: Coin[],
-  popDiv: HTMLDivElement,
-  i: number,
-  j: number,
-) {
-  const [lat, lng] = generateLatLong(i, j);
-  let text = `<div><b>Cache ${lat}:${lng}</b></div>
-							<br></br>
-							<div>Coins: 
-									<ul>`;
-  for (let k = 0; k < coins.length; k++) {
-    text += `<li>Coin ${coins[k].i}:${coins[k].j} #${coins[k].serial}</li>`;
-  }
-  text += `       </ul>
-							</div>
-					<button id="take">Take Coin</button>
-					<button id="deposit">Deposit Coin</button>`;
-
-  popDiv.innerHTML = text;
-}
-
-function generateCoin(x: number, y: number) {
-  const [lat, lng] = generateLatLong(x, y);
-
-  const points = Math.floor(
-    luck([x, y, "initialValue"].toString()) * 100,
-  );
-
-  const coins: Coin[] = [];
-  for (let k = 0; k < 3; k++) {
-    if (points > k * 33) {
-      coins.push({ i: lat, j: lng, serial: k + 1 });
-    }
-  }
-  if (coinCache.get([lat, lng].toString()) == null) {
-    coinCache.set([lat, lng].toString(), coins);
-  }
-}
-
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 
-const playerCoins: Coin[] = [];
+//let playerPoints = 0;
+//const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!; // element `statusPanel` is defined in index.html
+//statusPanel.innerHTML = "No points yet...";
 
-const coinCache: Map<string, Coin[]> = new Map<string, Coin[]>();
+// Player class
+class Player{
+  private readonly coins: Coin[];
+  private location: leaflet.LatLng;
+  private marker: leaflet.Marker;
 
-function regenerateCoinTxt() {
-  status.innerHTML = `${playerCoins.length} coins accumulated
-          <ul>`;
-  for (let i = 0; i < playerCoins.length; i++) {
-    status.innerHTML += `<li> Coin ${playerCoins[i].i}:${playerCoins[i].j} #${
-      playerCoins[i].serial
-    } </li>`;
-  }
-  status.innerHTML += `</ul>`;
-}
-
-function cacheSpawn(x: number, y: number) {
-  const [lat, lng] = generateLatLong(x, y);
-  const bound = leaflet.latLngBounds([
-    [origin.lat + x * TILE_DEGREES, origin.lng + y * TILE_DEGREES],
-    [origin.lat + (x + 1) * TILE_DEGREES, origin.lng + (y + 1) * TILE_DEGREES],
-  ]);
-
-  // create coin
-  generateCoin(x, y);
-
-  const rectangle = leaflet.rectangle(bound);
-  rectangle.addTo(map);
-
-  // interaction with cache
-  rectangle.bindPopup(() => {
-    const popDiv = document.createElement("div");
-    regenPopText(coinCache.get([lat, lng].toString())!, popDiv, x, y);
-
-    // decrement on click
-    popDiv
-      .querySelector<HTMLButtonElement>(`#take`)!
-      .addEventListener("click", () => {
-        if (coinCache.get([lat, lng].toString())!.length > 0) {
-          console.log(coinCache.get([lat, lng].toString())!);
-          playerCoins.push(
-            coinCache.get(
-              [lat, lng].toString(),
-            )![coinCache.get([lat, lng].toString())!.length - 1],
-          );
-          coinCache.get([lat, lng].toString())!.pop();
-          regenerateCoinTxt();
-          rectangle.closePopup();
-        }
-      });
-
-    popDiv
-      .querySelector<HTMLButtonElement>(`#deposit`)!
-      .addEventListener("click", () => {
-        if (playerCoins.length > 0) {
-          coinCache.get([lat, lng].toString())!.push(
-            playerCoins[playerCoins.length - 1],
-          );
-          playerCoins.pop();
-          regenerateCoinTxt();
-          rectangle.closePopup();
-        }
-      });
-
-    return popDiv;
-  });
-}
-
-let isTracking = false;
-let location: number | null = null;
-
-function makeButtons() {
-  const north = document.querySelector<HTMLButtonElement>("#north")!;
-  const east = document.querySelector<HTMLButtonElement>("#east")!;
-  const south = document.querySelector<HTMLButtonElement>("#south")!;
-  const west = document.querySelector<HTMLButtonElement>("#west")!;
-  const sensor = document.querySelector<HTMLButtonElement>("#sensor")!;
-  const reset = document.querySelector<HTMLButtonElement>("#reset")!;
-  const buttons = [north, east, south, west];
-
-  const changes = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-  for (let i = 0; i < buttons.length; i++) {
-    buttons[i].addEventListener("click", () => {
-      playerMarker.setLatLng(
-        new leaflet.LatLng(
-          playerMarker.getLatLng().lat + changes[i][0] * TILE_DEGREES,
-          playerMarker.getLatLng().lng + changes[i][1] * TILE_DEGREES,
-        ),
-      );
-    });
+  constructor(location: leaflet.LatLng, map: leaflet.Map){
+    this.coins = [];
+    this.location = location;
+    this.marker = leaflet.marker(location);
+    this.marker.bindTooltip("This is you!");
+    this.marker.addTo(map);
   }
 
-  sensor.addEventListener("click", () => {
-    if (isTracking) {
-      if (location !== null) {
-        navigator.geolocation.clearWatch(location);
-        location = null;
-      }
-      isTracking = false;
-    } else {
-      if (navigator.geolocation) {
-        location = navigator.geolocation.watchPosition(
-          (position) => {
-            const { latitude, longitude } = position.coords;
-            const newPos = leaflet.latLng(latitude, longitude);
+  public getLocation(): leaflet.LatLng{
+    return this.location;
+  }
 
-            playerMarker.setLatLng(newPos);
-            map.setView(newPos);
-          },
-        );
-        isTracking = true;
-      }
-    }
-  });
+  public setLocation(location:leaflet.LatLng): void{
+    this.location = location;
+  }
 
-  reset.addEventListener("click", () => {
-    playerMarker.setLatLng(OAKES_CLASSROOM);
-  });
+  public addCoin(coin: Coin): void{
+    this.coins.push(coin);
+  }
+
+  public getCoin(): Coin | undefined{
+    return this.coins.pop();
+  }
+
+  public getCoinCount(): number{
+    return this.coins.length;
+  }
 }
+
+const player = new Player(OAKES_CLASSROOM, map);
+
+// ----------------------------
+// UI Stuff
+// ----------------------------
+
+const app = document.getElementById("app")!;
+// control panel div
+const controlPanel = document.createElement("div");
+app.appendChild(controlPanel);
+controlPanel.style.width = "100%";
+controlPanel.style.height = "50px";
+controlPanel.style.position = "absolute";
+controlPanel.style.top = "0";
+controlPanel.style.left = "0";
+controlPanel.style.backgroundColor = "rgba(0,0,0,0.2)";
+
+// map panel div.
+const mapPanel = document.createElement("div");
+app.appendChild(mapPanel);
+mapPanel.style.width = "100%";
+mapPanel.style.height = "calc(100% - 100px)";
+mapPanel.style.position = "absolute";
+mapPanel.style.top = "50px";
+mapPanel.style.left = "0";
+mapPanel.id = "map";
+
+// status panel div.
+const statusPanel = document.createElement("div");
+app.appendChild(statusPanel);
+statusPanel.style.width = "100%";
+statusPanel.style.height = "50px";
+statusPanel.style.position = "absolute";
+statusPanel.style.bottom = "0";
+statusPanel.style.left = "0";
+statusPanel.style.backgroundColor = "rgba(0,0,0,0.2)";
+statusPanel.innerHTML = `You don't have any coins! Collect some from caches.`;
+
+// main game 
+
+// background layer for map
+leaflet
+  .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution:
+      '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  })
+  .addTo(map);
 
 function generateCache() {
-  for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-    for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-      if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-        board.addCell(i, j);
-        cacheSpawn(i, j);
-      }
+  const location = player.getLocation();
+
+  for(const n of board.getCellsNearPoint(location)){
+    if(board.calculateLuckiness(n) < CACHE_SPAWN_PROBABILITY){
+      spawnCache(n);
     }
   }
 }
 
-makeButtons();
+function updateStatus(coinMSG: string){
+  statusPanel.innerHTML = `${coinMSG}<br>Player has ${player.getCoinCount()} coins.`;
+}
+
+// redefine spawnCache() reusing variables like popupDiv
+function spawnCache(spawnCell: Cell) {
+  if(!(board.calculateLuckiness(spawnCell) < CACHE_SPAWN_PROBABILITY)){
+    console.log("attempt to call spawnCache() in non-cache cell");
+    return;
+  }
+  // Convert cell numbers into lat/lng bounds
+  const bounds = board.getCellBounds(spawnCell);
+  const cache = board.getCacheForCell(spawnCell)!;
+
+  // creating rectangle
+  const rect = leaflet.rectangle(bounds, {color: "blue", weight: 1});
+  rect.addTo(map);
+  rect.bindTooltip(stringifyCell(spawnCell));
+
+  rect.bindPopup(() => {
+    // create deposit and withdraw buttons
+    const popupDiv = document.createElement("div");
+    const popupText = document.createElement("div");
+    popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
+    popupDiv.appendChild(popupText);
+
+    const bWithdraw = document.createElement("button");
+    bWithdraw.innerText = "Collect";
+    bWithdraw.style.backgroundColor = "#aaffaa";
+    bWithdraw.style.color = "black";
+    popupDiv.appendChild(bWithdraw);
+
+    const bDeposit = document.createElement("button");
+    bDeposit.innerText = "Deposit";
+    bDeposit.style.backgroundColor = "#aaaaff";
+    bDeposit.style.color = "black";
+    popupDiv.appendChild(bDeposit);
+
+    bWithdraw.addEventListener("click", () => {
+      if(cache.coins.length > 0) {
+        const coin = cache.coins.pop()!;
+        const coinMsg = `Received coin ${decodeCoin(coin)}.`;
+        player.addCoin(coin);
+
+        popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
+        updateStatus(coinMsg);
+      }
+    });
+    bDeposit.addEventListener("click", () => {
+      if(player.getCoinCount() > 0){
+        const coin = player.getCoin()!;
+        const coinMsg = `Left coin ${decodeCoin(coin)}.`;
+        cache.coins.push(coin);
+
+        popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
+        updateStatus(coinMsg);
+      }
+    });
+    return popupDiv;
+  });
+}
+
+export function decodeCoin(coin: Coin): string {
+  return `${coin.spawnLocation.i}:${coin.spawnLocation.j}#${coin.serial}`;
+}
+export function stringifyCell(cell: Cell): string {
+  const { i, j } = cell;
+  return `${i}:${j}`;
+}
+
+function updateMapView(){
+  const playerLoc = player.getLocation();
+  map.setView(playerLoc, GAMEPLAY_ZOOM_LEVEL);
+}
+
+updateMapView();
 generateCache();
