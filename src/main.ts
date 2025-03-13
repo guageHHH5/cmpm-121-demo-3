@@ -2,7 +2,7 @@
 // @deno-types="npm:@types/leaflet@^1.9.14"
 import leaflet from "leaflet";
 import { Board, Cell, Coin } from "./board.ts";
-
+import { Player } from "./player.ts";
 // Style sheets
 import "leaflet/dist/leaflet.css";
 import "./style.css";
@@ -21,42 +21,7 @@ export const CACHE_SPAWN_PROBABILITY = 0.1;
 
 
 
-// Create the map (element with id "map" is defined in index.html)
-const map = leaflet.map(document.getElementById("map")!, {
-  center: NULL_SPACE,
-  zoom: GAMEPLAY_ZOOM_LEVEL,
-  minZoom: GAMEPLAY_ZOOM_LEVEL,
-  maxZoom: GAMEPLAY_ZOOM_LEVEL,
-  zoomControl: false,
-  scrollWheelZoom: false,
-});
 
-// Populate the map with a background tile layer
-leaflet
-  .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution:
-      '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  })
-  .addTo(map);
-
-// Add a marker to represent the player
-const playerMarker = leaflet.marker(OAKES_CLASSROOM);
-playerMarker.bindTooltip("That's you!");
-playerMarker.addTo(map);
-
-// Add title
-const title = document.querySelector<HTMLDivElement>("#title")!;
-title.innerHTML = "Geocoin Carrier";
-title.style.marginLeft = "10px";
-title.style.font = "bold 54px sans-serif";
-
-//const origin = OAKES_CLASSROOM;
-
-// Display player points
-const status = document.querySelector<HTMLDivElement>("#statusPanel")!;
-status.innerHTML = "No coins available";
-status.style.font = "bold 24px sans-serif";
 
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 
@@ -64,42 +29,8 @@ const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 //const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!; // element `statusPanel` is defined in index.html
 //statusPanel.innerHTML = "No points yet...";
 
-// Player class
-class Player{
-  private readonly coins: Coin[];
-  private location: leaflet.LatLng;
-  private marker: leaflet.Marker;
 
-  constructor(location: leaflet.LatLng, map: leaflet.Map){
-    this.coins = [];
-    this.location = location;
-    this.marker = leaflet.marker(location);
-    this.marker.bindTooltip("This is you!");
-    this.marker.addTo(map);
-  }
 
-  public getLocation(): leaflet.LatLng{
-    return this.location;
-  }
-
-  public setLocation(location:leaflet.LatLng): void{
-    this.location = location;
-  }
-
-  public addCoin(coin: Coin): void{
-    this.coins.push(coin);
-  }
-
-  public getCoin(): Coin | undefined{
-    return this.coins.pop();
-  }
-
-  public getCoinCount(): number{
-    return this.coins.length;
-  }
-}
-
-const player = new Player(OAKES_CLASSROOM, map);
 
 // ----------------------------
 // UI Stuff
@@ -138,6 +69,20 @@ statusPanel.style.backgroundColor = "rgba(0,0,0,0.2)";
 statusPanel.innerHTML = `You don't have any coins! Collect some from caches.`;
 
 // main game 
+
+// Create the map (element with id "map" is defined in index.html)
+const map = leaflet.map(document.getElementById("map")!, {
+  center: NULL_SPACE,
+  zoom: GAMEPLAY_ZOOM_LEVEL,
+  minZoom: GAMEPLAY_ZOOM_LEVEL,
+  maxZoom: GAMEPLAY_ZOOM_LEVEL,
+  zoomControl: false,
+  scrollWheelZoom: false,
+});
+
+
+// new player
+const player = new Player(OAKES_CLASSROOM, map);
 
 // background layer for map
 leaflet
