@@ -35,13 +35,13 @@ export class Board {
   readonly titleVisRad: number;
 
   private readonly knownCells: Map<string, Cell>;
-  private readonly knownCaches: Map<Cell, Cache>;
+  private readonly knownCacheMomentos: Map<Cell, string>;
 
   constructor(tileWidth: number, tileVisRad: number) {
     this.tileWidth = tileWidth;
     this.titleVisRad = tileVisRad;
     this.knownCells = new Map();
-    this.knownCaches = new Map();
+    this.knownCacheMomentos = new Map();
   }
 
   private getCanonCell(cell: Cell): Cell {
@@ -82,16 +82,28 @@ export class Board {
     }
     return result;
   }
+  private cacheToMomentos(cache: Cache): string{
+    return JSON.stringify(cache);
+  }
 
+  private momentosToCache(unparsed: string): Cache{
+    return JSON.parse(unparsed);
+  }
   getCacheForCell(cell: Cell): Cache | null {
     if (this.calculateLuckiness(cell) < CACHE_SPAWN_PROBABILITY) {
-      if(!this.knownCaches.has(cell)){
+      if(!this.knownCacheMomentos.has(cell)){
         const coins = this.calculateNumCoins(cell);
         this.initCache(cell, coins);
       }
-      return this.knownCaches.get(cell)!;
+      const getCache = this.knownCacheMomentos.get(cell)!;
+      return this.momentosToCache(getCache);
     }
     return null;
+  }
+
+  setCacheForCell(cell: Cell, cache: Cache): void{
+    const unparsed = this.cacheToMomentos(cache);
+    this.knownCacheMomentos.set(cell, unparsed);
   }
   
   calculateNumCoins(cell: Cell): number{
@@ -115,6 +127,8 @@ export class Board {
       nCache.coins.push(new Coin(cell, nCache.cSerial++));
     }
 
-    this.knownCaches.set(cell, nCache);
+    const newUnparsed = this.cacheToMomentos(nCache);
+
+    this.knownCacheMomentos.set(cell, newUnparsed);
   }
 }
