@@ -3,6 +3,7 @@
 import leaflet from "leaflet";
 import { Board, Cell, Coin } from "./board.ts";
 import { Player } from "./player.ts";
+import { buttonElement } from "./control.ts";
 // Style sheets
 import "leaflet/dist/leaflet.css";
 import "./style.css";
@@ -24,7 +25,7 @@ export const CACHE_SPAWN_PROBABILITY = 0.1;
 
 
 const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
-
+let locationActivated = false;
 //let playerPoints = 0;
 //const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!; // element `statusPanel` is defined in index.html
 //statusPanel.innerHTML = "No points yet...";
@@ -47,7 +48,35 @@ controlPanel.style.top = "0";
 controlPanel.style.left = "0";
 controlPanel.style.backgroundColor = "rgba(0,0,0,0.2)";
 
-// map panel div.
+// button creation
+const up = buttonElement("⬆️");
+const down = buttonElement("⬇️");
+const left = buttonElement("⬅️");
+const right = buttonElement("➡️");
+
+const geo = buttonElement("🌐");
+geo.addEventListener("click", ()=>{
+  // toggle direction button on/off
+  up.hidden = !up.hidden;
+  down.hidden = !down.hidden;
+  left.hidden = !left.hidden;
+  right.hidden = !right.hidden;
+
+  locationActivated = !locationActivated;
+})
+
+up.addEventListener("click", ()=>player.moveUp());
+down.addEventListener("click", ()=>player.moveDown());
+left.addEventListener("click", ()=>player.moveLeft());
+right.addEventListener("click", ()=>player.moveRight());
+
+controlPanel.appendChild(geo);
+controlPanel.appendChild(up);
+controlPanel.appendChild(down);
+controlPanel.appendChild(left);
+controlPanel.appendChild(right);
+
+// map panel div
 const mapPanel = document.createElement("div");
 app.appendChild(mapPanel);
 mapPanel.style.width = "100%";
@@ -66,7 +95,8 @@ statusPanel.style.position = "absolute";
 statusPanel.style.bottom = "0";
 statusPanel.style.left = "0";
 statusPanel.style.backgroundColor = "rgba(0,0,0,0.2)";
-statusPanel.innerHTML = `You don't have any coins! Collect some from caches.`;
+let statusText = "You don't have any coins! Collect some from caches.";
+statusPanel.innerHTML = statusText;
 
 // main game 
 
@@ -83,7 +113,8 @@ const map = leaflet.map(document.getElementById("map")!, {
 
 // new player
 const player = new Player(OAKES_CLASSROOM, map);
-
+player.createObserver(updateMapView);
+player.createObserver(updateStatus);
 // background layer for map
 leaflet
   .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -103,8 +134,21 @@ function generateCache() {
   }
 }
 
-function updateStatus(coinMSG: string){
-  statusPanel.innerHTML = `${coinMSG}<br>Player has ${player.getCoinCount()} coins.`;
+function updateMapView(){
+  map.setView(player.getLocation(), GAMEPLAY_ZOOM_LEVEL);
+
+  // clear and set new rectangles based on player's new position
+  map.eachLayer((layers) =>{
+    if (layers instanceof leaflet.Rectangle){
+      map.removeLayer(layers);
+    }
+  })
+  generateCache();
+}
+
+
+function updateStatus(){
+  statusPanel.innerHTML = statusText
 }
 
 // redefine spawnCache() reusing variables like popupDiv
@@ -144,21 +188,29 @@ function spawnCache(spawnCell: Cell) {
     bWithdraw.addEventListener("click", () => {
       if(cache.coins.length > 0) {
         const coin = cache.coins.pop()!;
-        const coinMsg = `Received coin ${decodeCoin(coin)}.`;
+        //const coinMsg = `Received coin ${decodeCoin(coin)}.`;
         player.addCoin(coin);
 
+        board.setCacheForCell(spawnCell, cache);
+
+        statusText = `You picked up coin ${decodeCoin(coin)}.<br>Player has ${player.getCoinCount()} coins.`;
         popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
-        updateStatus(coinMsg);
+
+        player.notifyObserver();
       }
     });
     bDeposit.addEventListener("click", () => {
       if(player.getCoinCount() > 0){
         const coin = player.getCoin()!;
-        const coinMsg = `Left coin ${decodeCoin(coin)}.`;
+        // const coinMsg = `Left coin ${decodeCoin(coin)}.`;
         cache.coins.push(coin);
 
+        board.setCacheForCell(spawnCell, cache);
+        
+        statusText = `You left behind coin ${decodeCoin(coin)}.<br>Player has ${player.getCoinCount()} coins.`;
         popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
-        updateStatus(coinMsg);
+
+        player.notifyObserver();
       }
     });
     return popupDiv;
@@ -173,10 +225,40 @@ export function stringifyCell(cell: Cell): string {
   return `${i}:${j}`;
 }
 
-function updateMapView(){
-  const playerLoc = player.getLocation();
-  map.setView(playerLoc, GAMEPLAY_ZOOM_LEVEL);
+function getPromiseCurrentLocation(): Promise<GeolocationPosition>{
+  return new Promise((resolve, reject)=>{
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(resolve,reject);
+    }else{
+      reject(new Error("Geolocation is not supported by the current browser"));
+    }
+  });
+}
+
+function getCurrentLocationFromDevice(): leaflet.latLng | null{
+  getPromiseCurrentLocation().then((position) => {
+    const {latitude, longitude} = position.coords;
+    console.log(`Lat: ${latitude}, Long: ${longitude}`);
+    return leaflet.latLng(latitude, longitude);
+  }).catch((error) => {
+    console.error("Eorror getting location:", error);
+    return null;
+  })
+}
+
+function updateLocation(){
+  if(locationActivated){
+    const newLoc = getCurrentLocationFromDevice();
+    if(newLoc){
+      console.log("geolocation switching to: ", newLoc);
+      player.setLocation(getCurrentLocationFromDevice());
+      player.notifyObserver();
+    } else {
+      console.log("geolocation unavailable");
+    }
+  }
+  setTimeout(updateLocation, 1000);
 }
 
 updateMapView();
-generateCache();
+updateLocation();
