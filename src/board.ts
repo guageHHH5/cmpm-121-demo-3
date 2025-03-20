@@ -60,6 +60,14 @@ export class Board {
     });
   }
 
+  getCellCenter(cell: Cell): leaflet.LatLng {
+    const {i, j} = cell;
+    return leaflet.latLng(
+      (i + 0.5) * this.tileWidth,
+      (j + 0.5) * this.tileWidth,
+    );
+  }
+
   getCellBounds(cell: Cell): leaflet.LatLngBounds {
     const { i, j } = cell;
     return leaflet.latLngBounds(
@@ -89,6 +97,7 @@ export class Board {
   private momentosToCache(unparsed: string): Cache{
     return JSON.parse(unparsed);
   }
+
   getCacheForCell(cell: Cell): Cache | null {
     if (this.calculateLuckiness(cell) < CACHE_SPAWN_PROBABILITY) {
       if(!this.knownCacheMomentos.has(cell)){
@@ -130,5 +139,39 @@ export class Board {
     const newUnparsed = this.cacheToMomentos(nCache);
 
     this.knownCacheMomentos.set(cell, newUnparsed);
+  }
+
+  serializeBoard(): string {
+    const serialized = {
+      tileWidth: this.tileWidth,
+      tileVisRad: this.titleVisRad,
+      knownCells: Array.from(this.knownCells.entries()),
+      cacheMomentos: Array.from(this.knownCacheMomentos.entries(),)
+      .map(([cell, momento]) => ({
+        cell: {i: cell.i, j: cell.j},
+        momento,
+      }),
+    )
+    };
+    return JSON.stringify(serialized);
+  }
+
+  static deserializeBoard(data: string): Board {
+    const parsed = JSON.parse(data);
+    const board = new Board(parsed.tileWidth, parsed.tileVisRad);
+
+    // Deserialize knownCells
+    for(const [key, cell] of parsed.knownCells){
+      board.knownCells.set(key, cell);
+    }
+
+    // Deserialize momentos
+    for (const items of parsed.cacheMomentos){
+      const cell = {i: items.cell.i, j: items.cell.j};
+      const cache = board.momentosToCache(items.momento);
+      board.setCacheForCell(cell, cache);
+    }
+
+    return board;
   }
 }
