@@ -21,10 +21,6 @@ const NEIGHBORHOOD_SIZE = 8;
 const GEOLOCATION_UPDATE_INTERVAL = 1000;
 export const CACHE_SPAWN_PROBABILITY = 0.1;
 
-
-
-
-
 //const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 let locationActivated = false;
 
@@ -194,12 +190,6 @@ const map = leaflet.map(document.getElementById("map")!, {
   scrollWheelZoom: false,
 });
 
-
-// new player
-//const player = new Player(OAKES_CLASSROOM, map);
-//player.createObserver(updateMapView);
-//player.createObserver(updateStatus);
-// background layer for map
 leaflet
   .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -331,7 +321,6 @@ function spawnCache(spawnCell: Cell) {
 
       if(cache.coins.length > 0) {
         const coin = cache.coins.pop()!;
-        //const coinMsg = `Received coin ${decodeCoin(coin)}.`;
         player.addCoin(coin);
 
         board.setCacheForCell(spawnCell, cache);
@@ -348,7 +337,6 @@ function spawnCache(spawnCell: Cell) {
     bDeposit.addEventListener("click", () => {
       if(player.getCoinCount() > 0){
         const coin = player.getCoin()!;
-        // const coinMsg = `Left coin ${decodeCoin(coin)}.`;
         cache.coins.push(coin);
 
         board.setCacheForCell(spawnCell, cache);

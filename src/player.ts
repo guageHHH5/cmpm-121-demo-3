@@ -65,32 +65,20 @@ export class Player{
     }
 
     public moveUp(): void{
-      //const lat = this.location.lat + this.MOVE_OFFEST;
       this.moveByLatLng(this.MOVE_OFFEST, 0);
     }
 
     public moveDown(): void{
-      //const lat = this.location.lat - this.MOVE_OFFEST;
       this.moveByLatLng(-this.MOVE_OFFEST, 0);
     }
 
     public moveLeft(): void{
-      //const lng = this.location.lng - this.MOVE_OFFEST;
       this.moveByLatLng(0, -this.MOVE_OFFEST);
     }
 
     public moveRight(): void{
-      //const lng = this.location.lng + this.MOVE_OFFEST;
       this.moveByLatLng(0, this.MOVE_OFFEST);
     }
-
-    /*
-    public move(lat: number, lng: number): void {
-      this.location = leaflet.latLng(lat, lng);
-      this.marker.setLatLng(this.location);
-      this.notifyObserver();
-    }
-      */
 
     public createObserver(observers: () => void): void {
       this.observer.push(observers);
