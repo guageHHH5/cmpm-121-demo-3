@@ -3,7 +3,7 @@
 import leaflet from "leaflet";
 import { Board, Cell, Coin } from "./board.ts";
 import { Player } from "./player.ts";
-import { buttonElement } from "./control.ts";
+import { buttonElement, createCloseButtonDiv, createCoinButton, createCoinContainerDiv, createInventoryPanel } from "./control.ts";
 // Style sheets
 import "leaflet/dist/leaflet.css";
 import "./style.css";
@@ -18,20 +18,24 @@ const NULL_SPACE = leaflet.latLng(0, 0);
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
+const GEOLOCATION_UPDATE_INTERVAL = 1000;
 export const CACHE_SPAWN_PROBABILITY = 0.1;
 
 
 
 
 
-const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
+//const board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
 let locationActivated = false;
-//let playerPoints = 0;
-//const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!; // element `statusPanel` is defined in index.html
-//statusPanel.innerHTML = "No points yet...";
+
+let player: Player;
+let board: Board;
+let movePolyL: leaflet.Polyline;
+let movementHistory: leaflet.LatLng[] = [];
 
 
-
+const PAN_STOP_TIME = 5000;
+let isPannable = true;
 
 // ----------------------------
 // UI Stuff
@@ -63,18 +67,98 @@ geo.addEventListener("click", ()=>{
   right.hidden = !right.hidden;
 
   locationActivated = !locationActivated;
-})
-
-up.addEventListener("click", ()=>player.moveUp());
-down.addEventListener("click", ()=>player.moveDown());
-left.addEventListener("click", ()=>player.moveLeft());
-right.addEventListener("click", ()=>player.moveRight());
+  console.log("Geolocation Activated: ", locationActivated);
+});
 
 controlPanel.appendChild(geo);
+
+
+function panCamera(coin: Coin){
+  map.setView(board.getCellCenter(coin.spawnLocation), GAMEPLAY_ZOOM_LEVEL);
+
+  //new marker at coin location
+  const marker = leaflet.marker(board.getCellCenter(coin.spawnLocation));
+  marker.bindTooltip("You found this coin here!<br>" + decodeCoin(coin));
+  marker.addTo(map);
+
+  // disable autopan
+  isPannable = false;
+
+  // re-enable autopan
+  setTimeout(() => {
+    isPannable = true;
+    map.removeLayer(marker);
+    updateMapView();
+  }, PAN_STOP_TIME);
+}
+
+function moveListener(moveFunction: ()=> void){
+  const oldLoc = player.getLocation();
+  moveFunction();
+  const newLoc = player.getLocation();
+  if(checkCellBoundary(oldLoc, newLoc)){
+    refreshCache();
+  }
+  updateDrawMoveHistory();
+  saveGame();
+}
+
+up.addEventListener("click", ()=> {moveListener(()=>player.moveUp());});
+down.addEventListener("click", ()=>{moveListener(()=>player.moveDown());});
+left.addEventListener("click", ()=>{moveListener(()=>player.moveLeft());});
+right.addEventListener("click", ()=>{moveListener(()=>player.moveRight());});
+
+
+// reset button
+const resetButton = buttonElement("🚮");
+resetButton.addEventListener("click", () => {
+  const response = prompt("Are you sure you want to reset your game? Yes/No",);
+  if(response?.toLowerCase() == "yes"){
+    resetGame();
+  } else {
+    console.log("Reset Failed.");
+  }
+});
+
+// create inventory
+const inventoryButton = buttonElement("Inventory");
+inventoryButton.addEventListener("click", () => {
+  console.log("opened inventory");
+
+  const inventory = player.getCoinInventory();
+  const popupDiv = createInventoryPanel();
+  const coinContainerDiv = createCoinContainerDiv();
+  const closeButtonDiv = createCloseButtonDiv();
+  popupDiv.appendChild(coinContainerDiv);
+  popupDiv.appendChild(closeButtonDiv);
+  for(const coin of inventory){
+    const coinButton = createCoinButton(decodeCoin(coin));
+    coinButton.addEventListener("click", ()=>{
+      panCamera(coin);
+      app.removeChild(popupDiv);
+    });
+    coinContainerDiv.appendChild(coinButton);
+  }
+
+  const closeButton = document.createElement("button");
+  closeButton.innerText = "Close";
+  closeButton.style.backgroundColor = "#666666";
+  closeButton.style.color = "black";
+  closeButtonDiv.appendChild(closeButton);
+
+  app.appendChild(popupDiv);
+
+  closeButton.addEventListener("click", () => {
+    app.removeChild(popupDiv);
+  });
+});
+
 controlPanel.appendChild(up);
 controlPanel.appendChild(down);
 controlPanel.appendChild(left);
 controlPanel.appendChild(right);
+controlPanel.appendChild(resetButton);
+controlPanel.appendChild(inventoryButton);
 
 // map panel div
 const mapPanel = document.createElement("div");
@@ -112,9 +196,9 @@ const map = leaflet.map(document.getElementById("map")!, {
 
 
 // new player
-const player = new Player(OAKES_CLASSROOM, map);
-player.createObserver(updateMapView);
-player.createObserver(updateStatus);
+//const player = new Player(OAKES_CLASSROOM, map);
+//player.createObserver(updateMapView);
+//player.createObserver(updateStatus);
 // background layer for map
 leaflet
   .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -134,21 +218,78 @@ function generateCache() {
   }
 }
 
-function updateMapView(){
-  map.setView(player.getLocation(), GAMEPLAY_ZOOM_LEVEL);
-
-  // clear and set new rectangles based on player's new position
-  map.eachLayer((layers) =>{
-    if (layers instanceof leaflet.Rectangle){
-      map.removeLayer(layers);
+function refreshCache(){
+  map.eachLayer((layer) => {
+    if(layer instanceof leaflet.Rectangle){
+      map.removeLayer(layer);
     }
-  })
+  });
   generateCache();
+}
+
+function updateMapView(){
+  if(isPannable){
+    map.setView(player.getLocation(), GAMEPLAY_ZOOM_LEVEL);
+  }
 }
 
 
 function updateStatus(){
   statusPanel.innerHTML = statusText
+}
+
+function loadGame(){
+  const boardval = localStorage.getItem("board");
+  const playerval = localStorage.getItem("player");
+  const moveval = localStorage.getItem("movementHistory");
+
+  // check if data exists, if exist, deserialize
+  if(boardval && playerval && moveval){
+    board = Board.deserializeBoard(boardval);
+    player = Player.deserializePlayer(playerval, map);
+    movementHistory = JSON.parse(moveval);
+    updateDrawMoveHistory();
+    statusText = `You have ${player.getCoinCount()} coins.`;
+  } else {
+    board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
+    player = new Player(OAKES_CLASSROOM, map);
+    movementHistory = [];
+  }
+
+  player.createObserver(updateMapView);
+  player.createObserver(updateStatus);
+}
+
+function saveGame() {
+  // clear all data
+  localStorage.removeItem("board");
+  localStorage.removeItem("player");
+  localStorage.removeItem("movementHistory");
+
+  localStorage.setItem("board", board.serializeBoard());
+  localStorage.setItem("player", player.serializePlayer());
+  localStorage.setItem("movementHistory", JSON.stringify(movementHistory));
+}
+
+function resetGame() {
+  map.removeLayer(player.getPlayer());
+  // remove polyline
+  if(movePolyL){
+    map.removeLayer(movePolyL);
+  }
+  // clear local storage
+  localStorage.removeItem("board");
+  localStorage.removeItem("player");
+  board = new Board(TILE_DEGREES, NEIGHBORHOOD_SIZE);
+  player = new Player(OAKES_CLASSROOM, map);
+  // moved add observer to the function
+  player.createObserver(updateMapView);
+  player.createObserver(updateStatus);
+  movementHistory = [];
+  statusText = "You don't have any coins! Collect some from caches.";
+  updateMapView();
+  updateStatus();
+  refreshCache();
 }
 
 // redefine spawnCache() reusing variables like popupDiv
@@ -186,6 +327,8 @@ function spawnCache(spawnCell: Cell) {
     popupDiv.appendChild(bDeposit);
 
     bWithdraw.addEventListener("click", () => {
+      event?.stopPropagation();
+
       if(cache.coins.length > 0) {
         const coin = cache.coins.pop()!;
         //const coinMsg = `Received coin ${decodeCoin(coin)}.`;
@@ -197,7 +340,10 @@ function spawnCache(spawnCell: Cell) {
         popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
 
         player.notifyObserver();
+        saveGame();
       }
+
+      return false;
     });
     bDeposit.addEventListener("click", () => {
       if(player.getCoinCount() > 0){
@@ -211,7 +357,9 @@ function spawnCache(spawnCell: Cell) {
         popupText.innerText = `You found a cache! ${cache.coins.length} coins here.`;
 
         player.notifyObserver();
+        saveGame();
       }
+      return false;
     });
     return popupDiv;
   });
@@ -225,6 +373,43 @@ export function stringifyCell(cell: Cell): string {
   return `${i}:${j}`;
 }
 
+function drawPolyLine() {
+  if(movePolyL){
+    map.removeLayer(movePolyL);
+  }
+  movePolyL = leaflet.polyline(movementHistory, {
+    color: "magenta",
+  }).addTo(map);
+}
+
+function checkCellBoundary(oldLoc: leaflet.LatLng, newLoc: leaflet.LatLng,):boolean {
+  const oldCell = board.getCellForPoint(oldLoc);
+  const newCell = board.getCellForPoint(newLoc);
+  if(oldCell.i !== newCell.i || oldCell.j !== newCell.j){
+    console.log("crossed Cell Boundary: ", oldCell, newCell);
+    return true;
+  }
+  return false;
+}
+
+function updateDrawMoveHistory(){
+  if(checkLocation()){
+    return;
+  }
+  movementHistory.push(player.getLocation());
+  drawPolyLine();
+}
+
+function checkLocation(){
+  if(movementHistory.length == 0){
+    return false;
+  }
+  if(movementHistory[movementHistory.length - 1] == player.getLocation()){
+    return true;
+  }
+  return false;
+}
+
 function getPromiseCurrentLocation(): Promise<GeolocationPosition>{
   return new Promise((resolve, reject)=>{
     if(navigator.geolocation){
@@ -235,30 +420,39 @@ function getPromiseCurrentLocation(): Promise<GeolocationPosition>{
   });
 }
 
-function getCurrentLocationFromDevice(): leaflet.latLng | null{
-  getPromiseCurrentLocation().then((position) => {
-    const {latitude, longitude} = position.coords;
-    console.log(`Lat: ${latitude}, Long: ${longitude}`);
-    return leaflet.latLng(latitude, longitude);
-  }).catch((error) => {
-    console.error("Eorror getting location:", error);
-    return null;
-  })
-}
 
 function updateLocation(){
   if(locationActivated){
-    const newLoc = getCurrentLocationFromDevice();
-    if(newLoc){
-      console.log("geolocation switching to: ", newLoc);
-      player.setLocation(getCurrentLocationFromDevice());
-      player.notifyObserver();
-    } else {
-      console.log("geolocation unavailable");
-    }
+    console.log("attempting to update geolocation...");
+
+    const oldLoc = player.getLocation();
+
+    getPromiseCurrentLocation().then((newLoc) => {
+      if(newLoc) {
+        const { latitude, longitude } = newLoc.coords;
+        const newLeafletVar = leaflet.latLng(latitude, longitude);
+        player.setLocation(newLeafletVar);
+        if(checkCellBoundary(oldLoc, newLeafletVar)){
+          console.log("crossed Cell Boundary, refreshing caches...");
+          refreshCache();
+        }
+        player.notifyObserver();
+        updateDrawMoveHistory();
+        saveGame();
+      } else {
+        console.log("null geolocation.");
+      }
+    }).catch((error) =>{
+      console.error("Error getting geolocation: ", error);
+    });
   }
-  setTimeout(updateLocation, 1000);
+  setTimeout(updateLocation, GEOLOCATION_UPDATE_INTERVAL);
 }
 
+loadGame();
 updateMapView();
 updateLocation();
+updateMapView();
+refreshCache();
+
+globalThis.addEventListener("beforeunload", saveGame);
